@@ -9,6 +9,6 @@ I personally have been using to start my bug hunting journey
 - Then HTP and have a fun day :)
 
 ## UNDER DEVELOPMENT 
- So sorry if anything breaks just pop into DC CyberSec for any question
+ So sorry if anything breaks just pop into DC CyberSec Discord for any question
  https://discord.com/invite/dccybersec
  
