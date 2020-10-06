@@ -1,19 +1,3 @@
-certspotter(){
-  curl -s https://certspotter.com/api/v0/certs\?domain\=$1 | jq '.[].dns_names[]' | sed 's/\"//g' | sed 's/\*\.//g' | sort -u | grep $1
-}
-
-crtsh(){
-  curl -s https://crt.sh/?q=%.$1  | sed 's/<\/\?[^>]\+>//g' | grep $1
-}
-
-certnmap(){
-  curl https://certspotter.com/api/v0/certs\?domain\=$1 | jq '.[].dns_names[]' | sed 's/\"//g' | sed 's/\*\.//g' | sort -u | grep $1  | nmap -T5 -Pn -sS -i - -$
-} 
-
-ipinfo(){
-  curl http://ipinfo.io/$1
-}
-
 # Use the output of this to make .scope files for checkscope
 getscope(){
   mkdir scope
@@ -21,444 +5,327 @@ getscope(){
   rescope --zap --name inscope -u $1 -o scope/zapscope.context
 }
 
-rapid7search(){
-  python3.7 ~/tools/Passive-hunter/Passivehunter/passivehunter.py $1
-  cat *.com.txt | sed 's/\http\:\/\///g' |  sed 's/\https\:\/\///g' >> unsorted.rapid7.subdomains
-  rm -f *.txt
-  cat unsorted.rapid7.subdomains | sort -u >> sorted.rapid7.subdomains
-  rm -f unsorted.rapid7.subdomains
-}
-
 getfreshresolvers(){
   dnsvalidator -tL https://public-dns.info/nameservers.txt -threads 20 -o ~/tools/lists/my-lists/resolvers
 }
 
-# USE WITH CAUTION
+#!/bin/bash
+
+# FIX
 bf-subdomains(){
-  cat hosts | while read line; do
-    shuffledns -d $line -w ~/tools/lists/commonspeak2-wordlists-master/subdomains/subdomains.txt -r ~/tools/lists/my-lists/resolvers -o shuffledns.bf.subdomains
+  cat wildcard.domains | while read line; do
+    shuffledns -d $line -w ~/tools/lists/all.txt -r ~/tools/lists/my-lists/resolvers -massdns ~/tools/massdns/bin/massdns -o $line.shuffle.bf.subdomains
   done
+  cat *.shuffledns.bf.subdomains | sort -u >> bf.subdomains
 }
 
-## findomain
+rapid7search(){
+  cat wildcard.domains | while read line; do
+    python3.8 ~/tools/Passivehunter/passivehunter.py $line
+  done
+  cat *.txt | sed 's/\http\:\/\///g' |  sed 's/\https\:\/\///g' >> unsorted.rapid7.subdomains
+  rm -f *.txt
+  sort -u unsorted.rapid7.subdomains -o sorted.rapid7.subdomains
+  rm -f unsorted.rapid7.subdomains
+}
+
+#add vhost from httpx
 subdomain-enum(){
-  subfinder -nW -v -o subfinder.subdomains -dL hosts
-  cat subfinder.subdomains sorted.rapid7.subdomains shuffledns.bf.subdomains >> all.subdomains
-  rm -f subfinder.subdomains sorted.rapid7.subdomains shuffle.bf.subdomains
-  amass enum -nf all.subdomains -v -ip -active -config ~/amass/config.ini -min-for-recursive 3 -df hosts -o amass.subdomains
-  awk '{print $1}' amass.subdomains >> all.subdomains
-  awk '{print $2}' amass.subdomains | tr ',' '\n' | grep -E '\b((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\.)){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))\b' | sort -u >> ipv4.ipaddresses
-  awk '{print $2}' amass.subdomains | tr ',' '\n' | grep -E '(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))' >> ipv6.addresses
-  sort -u all.subdomains -o sorted.all.subdomains
-  rm -f all.subdomains 
+  cat hosts | egrep -v '(\.\*$)' | egrep '(^\*.)' | cut -c 3- >> wildcard.domains
+  cat hosts | egrep -v '(^\*.)' | egrep -v '(\.\*$)' >> sorted.all.subdomains
+  #cat hosts | egrep '(\.\*$)' | sed 's/\*.//g'>> tld.wildcards
+  #bf-subdomains
+  rapid7search
+  cat wildcard.domains | while read line; do
+    assetfinder -subs-only $line | grep $line | tee -a assetfinder.subdomains
+  done
+  subfinder -silent -o subfinder.subdomains -dL wildcard.domains -rL ~/tools/lists/my-lists/resolvers
+  cat assetfinder.subdomains subfinder.subdomains sorted.rapid7.subdomains >> all.subdomains
+  rm -f assetfinder.subdomains subfinder.subdomains sorted.rapid7.subdomains
+  amass enum -nf all.subdomains -v -passive -config ~/amass/config.ini -df wildcard.domains -o amass.passive.subdomains -rf ~/tools/lists/my-lists/resolvers 
+  amass enum -nf all.subdomains -v -ip -active -config ~/amass/config.ini -df wildcard.domains -o amass.active.subdomains -min-for-recursive 2 -rf ~/tools/lists/my-lists/resolvers
+  cat amass.passive.subdomains | anew all.subdomains 
+  awk '{print $1}' amass.active.subdomains | anew all.subdomains
+  awk '{print $2}' amass.active.subdomains | tr ',' '\n' | grep -E '\b((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\.)){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))\b' | sort -u >> ipv4.ipaddresses
+  awk '{print $2}' amass.active.subdomains | tr ',' '\n' | grep -E '(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))' >> ipv6.ipaddresses
+  cat all.subdomains | sort -u >> sorted.all.subdomains
+  rm -f all.subdomains wildcard.domains amass.passive.subdomains
+  #amass db -json amass.db.json -df sorted.all.subdomains
+  #amass viz -maltego -df wildcard.domains
 }
 
-#############
-#Ex: of .scope file is need the formative is regular expression that will sort the file like so
-# .*\.example\.com$
-# ^example\.com$
-# .*\.example\.net$
-# !.*outofscope\.example\.net$
-##########
-checkscope(){
-  cat sorted.all.subdomains | inscope | tee -a inscope.sorted.all.subdomains 
-}
-
-###################################
-# Learn how amass gets both ipv4&6 
-# use massdns instead
-####################################
-resolving(){
-   shuffledns -d $1 -list sorted.all.subdomains -r ~/tools/lists/my-lists/resolvers -o resolved.subdomains 
+dnsrecords() {
+  mkdir dnshistory
+  cat sorted.all.subdomains | ~/tools/massdns/bin/massdns -r ~/tools/lists/my-lists/resolvers -t A -o S -w dnshistory/A-records
+  cat dnshistory/A-records | awk '{print $3}' | grep -E '\b((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\.)){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))\b' | sort -u | anew ipv4.ipaddresses
+  cat sorted.all.subdomains | ~/tools/massdns/bin/massdns -r ~/tools/lists/my-lists/resolvers -t AAAA -o S -w dnshistory/AAAA-records
+  cat dnshistory/AAAA-records | awk '{print $3}' | grep -E '(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))' | sort -u | anew ipv6.ipaddresses
+  cat sorted.all.subdomains | ~/tools/massdns/bin/massdns -r ~/tools/lists/my-lists/resolvers -t CNAME  -o S -w dnshistory/CNAME-records
+  cat sorted.all.subdomains | ~/tools/massdns/bin/massdns -r ~/tools/lists/my-lists/resolvers -t MX  -o S -w dnshistory/MX-records
+  cat sorted.all.subdomains | ~/tools/massdns/bin/massdns -r ~/tools/lists/my-lists/resolvers -t NS  -o S -w dnshistory/NS-records
+  cat sorted.all.subdomains | ~/tools/massdns/bin/massdns -r ~/tools/lists/my-lists/resolvers -t SOA -o S -w dnshistory/SOA-records
+  cat sorted.all.subdomains | ~/tools/massdns/bin/massdns -r ~/tools/lists/my-lists/resolvers -t PTR -o S -w dnshistory/PTR-records
+  cat sorted.all.subdomains | ~/tools/massdns/bin/massdns -r ~/tools/lists/my-lists/resolvers -t TXT -o S -w dnshistory/TXT-records
+  cat dnshistory/* | awk -F '. ' '{print $1}' | sort -u >> resolved.all.subdomains
 }
 
 getalive() {
   # sperate http and https compare if http doest have or redirect to https put in seperate file
   # compare if you go to https if it automaticly redirects to https if not when does it in the page if never
-  cat resolved.subdomains | httprobe -c 10 -t 3000 | tee -a all.alive.subdomains
-  cat all.alive.subdomains | sed 's/\http\:\/\///g' |  sed 's/\https\:\/\///g' | sort -u | while read line; do
-    probeurl=$(cat alive.all.subdomains | sort -u | grep -m 1 $line)
-    echo "$probeurl" >> cleaned.alive.all.subdomains
-  done
-  echo "$(cat cleaned.alive.sudomains | sort -u)" > cleaned.all.alive.subdomains
-  rm all.alive.sudomains
-  mv cleaned.all.alive.subdomains all.alive.subdomais
-}
-
-##########################################################
-# use massdns
-# use dns history to check for possible domain takeover
-##########################################################
-dnsrecords() {
-  mkdir dnshistory
-  cat all.alive.subdomains | sed 's/\http\:\/\///g' |  sed 's/\https\:\/\///g' | dnsprobe -s ~/tools/lists/my-lists/resolvers -r A -silent -o dnshistory/A-records
-  cat all.alive.subdomains | sed 's/\http\:\/\///g' |  sed 's/\https\:\/\///g' | dnsprobe -s ~/tools/lists/my-lists/resolvers -r NS -silent -o dnshistory/NS-records
-  cat all.alive.subdomains | sed 's/\http\:\/\///g' |  sed 's/\https\:\/\///g' | dnsprobe -s ~/tools/lists/my-lists/resolvers -r CNAME -silent -o dnshistory/CNAME-records
-  cat all.alive.subdomains | sed 's/\http\:\/\///g' |  sed 's/\https\:\/\///g' | dnsprobe -s ~/tools/lists/my-lists/resolvers -r SOA -silent -o dnshistory/SOA-records
-  cat all.alive.subdomains | sed 's/\http\:\/\///g' |  sed 's/\https\:\/\///g' | dnsprobe -s ~/tools/lists/my-lists/resolvers -r PTR -silent -o dnshistory/PTR-records
-  cat all.alive.subdomains | sed 's/\http\:\/\///g' |  sed 's/\https\:\/\///g' | dnsprobe -s ~/tools/lists/my-lists/resolvers -r MX -silent -o dnshistory/MX-records
-  cat all.alive.subdomains | sed 's/\http\:\/\///g' |  sed 's/\https\:\/\///g' | dnsprobe -s ~/tools/lists/my-lists/resolvers -r TXT  -silent -o dnshistory/TXT-records
-  cat all.alive.subdomains | sed 's/\http\:\/\///g' |  sed 's/\https\:\/\///g' | dnsprobe -s ~/tools/lists/my-lists/resolvers -r AAAA -silent -o dnshistory/AAAA-records
-}
-
-screenshot() { 
-  #python3 EyeWitness.py --web -f cleaned.alive.all.subdomains --user-agent "$UA" --show-selenium --resolve -d eyewitness-report
-  cat all.alive.subdomains | ~/tools/aquatone/aquatone -chrome-path /snap/bin/chromium -out aqua_out
+  cat resolved.all.subdomains | httpx -follow-redirects -content-length -status-code -web-server -silent | tee -a all.alive.subdomains.report
+  awk '{print $1}' all.alive.subdomains.report >> all.alive.subdomains 
+  
+  cat ipv4.ipaddresses | httpx -follow-redirects -content-length -status-code -web-server -silent | tee -a all.alive.ips.report
+  awk '{print $1}' all.alive.ips.report >> all.alive.ips
+  cat all.alive.ips all.alive.subdomains | sort -u >> all.alive
 }
 
 scanner() {
-  # do udp scan as well
-  # can't decide weither to put -p0-65535 or --top-ports 1000
-  sudo ~/tools/masscan/bin/masscan -p0-65535 --open --rate 100000 --wait 0 -iL ipv4.ipaddresses -oX masscan.xml --exclude 255.255.255.255
-  sudo rm paused.conf
+  # cloudunflare cf-check
+  # do udp scan as well U:0-65535
+  cat ipv4.ipaddresses | cf-check >> ipv4.ipaddresses.cf.free
+  sudo ~/tools/masscan/bin/masscan -p0-65535 --rate 1000 --wait 1 -iL ipv4.ipaddresses.cf.free -oX masscan.xml --exclude 255.255.255.255
+  sudo rm paused.conf -f
   open_ports=$(cat masscan.xml | grep portid | cut -d "\"" -f 10 | sort -n | uniq | paste -sd,)
   cat masscan.xml | grep portid | cut -d "\"" -f 4 | sort -V | uniq >> nmap_targets.tmp
   
-  sudo nmap -sVC -p $open_ports -v -Pn -n -T4 -iL nmap_targets.tmp -oX nmap.ipv4.xml
+  # -sUT --script nmap-vulners
+  sudo nmap -sSV -p $open_ports -vvv -Pn -n -T3 -iL nmap_targets.tmp -oX nmap.ipv4.xml --script vulscan
   sudo rm nmap_targets.tmp
-  xsltproc -o nmap-native.ipv4.html nmap.ipv4.xml
-#  xsltproc -o nmap-bootstrap.ipv4.html bootstrap-nmap.xsl nmap.ipv4.xml
+  xsltproc -o nmap-bootstrap.ipv4.html ~/tools/nmap-bootstrap.xsl nmap.ipv4.xml
 
-  [ -f ipv6.ipaddresses ] && sudo nmap -sSV --top-ports 1000 -Pn -n -iL ipv6.ipaddresses -oX nmap.ipv6.xml && \
-  xsltproc -o nmap-native.ipv6.html nmap.ipv6.xml
+  #learn more about ipv6
+  [ -f ipv6.ipaddresses ] && sudo nmap -6 -sSV -p $open_ports -Pn -n -iL ipv6.ipaddresses -oX nmap.ipv6.xml && \
+  xsltproc -o nmap-bootstrap.ipv6.html ~/tools/nmap-bootstrap.xsl nmap.ipv6.xml
 }
 
-getrobots(){
-  cat hosts | while read line; do 
-    python3 ~/tools/waybackrobots.py $line
+#add port from port scan for possible screenshots
+screenshot() {
+  cat all.alive | aquatone
+}
+
+#add ports that have webfacing interface
+gaurecon() {
+  mkdir gau-data
+  mkdir gau-data/crawler
+
+  echo "${green}Gathering All URLs... ${reset}"
+  cat all.alive | sed 's/\http\:\/\///g' |  sed 's/\https\:\/\///g' | gau | tee -a gau-data/all.gau.urls
+
+  # add proxy to burp
+  gospider -S all.alive -c 10 -u web -d 3 -k 1 --sitemap --robots --blacklist ".(otf|woff|pdf|png|jpeg|css|ico|doc|gif)" -o gau-data/crawler/data
+}
+
+#  CHECK IF ALL ALIVE PUT IN SEPERATE FOLDER
+checkurls(){
+  mkdir potential
+
+  cat gau-data/crawler/data/* | grep '\[url\]' | awk -F '-' '{print $4}' >> gau-data/crawler/all.crawled.urls
+  cat gau-data/crawler/data/* | grep '\[aws-s3\]' | awk '{print $3}' | sort -u >> gau-data/crawler/s3.look.into
+  cat gau-data/crawler/data/* | grep '\[subdomains\]' | awk '{print $3}' | sort -u >> gau-data/crawler/subdomains
+  cat gau-data/crawler/data/* | grep '\[linkfinder\]' | awk '{print $6}' | sort -u >> gau-data/crawler/linkfinder.paths
+  cat gau-data/crawler/data/* | grep '\[javascript\]' | awk '{print $3}' | sort -u >> gau-data/crawler/js.paths
+  cat gau-data/crawler/data/* | grep '\[form\]' | awk '{print $3}' | sort -u >> gau-data/crawler/forms.urls
+  cat gau-data/crawler/data/* | grep '\[robots\]' | awk '{print $3}' | sort -u >> gau-data/crawler/robots.urls
+  cat gau-data/crawler/data/* | grep '\[sitemap\]' | awk '{print $3}' | sort -u >> gau-data/crawler/sitemap.urls
+  cat gau-data/all.gau.urls gau-data/crawler/all.crawled.urls | sort -u >> gau-data/all.urls
+
+  cat gau-data/all.urls | gf interestingEXT >> potential/interestingext.urls
+  cat gau-data/all.urls | gf img-traversal >> potential/imgtraversal.urls
+  cat gau-data/all.urls | gf interestingsubs >> potential/interestingsubs.urls
+  cat gau-data/all.urls | gf wordpress gf wordpress | awk -F ':' '{print $4}' | sed 's/^/https\:/g' >> potential/wordpress.urls
+  cat gau-data/all.urls | gf interestingparams | ~/tools/urldedupe/urldedupe -s | hakcheckurl | grep 200 | awk '{print $2}' >> potential/alive.interestingparams.urls
+  cat gau-data/all.urls | gf xss | ~/tools/urldedupe/urldedupe -s | hakcheckurl | grep 200 | awk '{print $2}' >> potential/alive.xss.urls
+  cat gau-data/all.urls | gf redirect | ~/tools/urldedupe/urldedupe -s | hakcheckurl | grep 200 | awk '{print $2}' >> potential/alive.redirect.urls
+  cat gau-data/all.urls | gf ssti | ~/tools/urldedupe/urldedupe -s | hakcheckurl | grep 200 | awk '{print $2}' >> potential/alive.ssti.urls
+  cat gau-data/all.urls | gf sqli | ~/tools/urldedupe/urldedupe -s | hakcheckurl | grep 200 | awk '{print $2}' >> potential/alive.sqli.urls
+  cat gau-data/all.urls | gf ssrf | ~/tools/urldedupe/urldedupe -s | hakcheckurl | grep 200 | awk '{print $2}' >> potential/alive.ssrf.urls
+  cat gau-data/all.urls | gf rce | ~/tools/urldedupe/urldedupe -s | hakcheckurl | grep 200 | awk '{print $2}' >> potential/alive.rce.urls
+  cat gau-data/all.urls | gf lfi | ~/tools/urldedupe/urldedupe -s | hakcheckurl | grep 200 | awk '{print $2}' >> potential/alive.lfi.urls
+  cat gau-data/all.urls | gf idor | ~/tools/urldedupe/urldedupe -s | hakcheckurl | grep 200 | awk '{print $2}' >> potential/alive.idor.urls
+  cat gau-data/all.urls | gf debug_logic >> potential/debug_logic.urls
+
+  cat gau-data/all.urls |  grep "?" | unfurl --unique keys | sort -u >> gau-data/params
+  [ -s gau-data/params ] && echo "${yellow}Found : $(wc -l gau-data/params | awk '{print $1}') : parameters ${reset}"
+
+  cat gau-data/all.urls | unfurl --unique paths | sort -u >> gau-data/paths
+  cat gau-data/paths | cut -c 2- | sort -u >> gau-data/paths.wobs
+  [ -s gau-data/paths.wobs ] && echo "${yellow}Found : $(wc -l gau-data/paths.wobs | awk '{print $1}') : paths ${reset}"
+
+  cat gau-data/all.urls | grep -P "\w+\.json(\?|$)" | sort -u >> gau-data/jsonurls
+  [ -s gau-data/jsonurls ] && echo "Found : $(wc -l gau-data/jsonurls | awk '{print $1}') : json files"
+  cat gau-data/jsonurls | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> gau-data/alive.jsonurls
+  [ -s gau-data/alive.jsonurls ] && echo "Found : $(wc -l gau-data/alive.txturls | awk '{print $1}') : alive text files"
+
+
+  cat gau-data/all.urls | grep -P "\w+\.txt(\?|$)" | sort -u >> gau-data/txturls
+  [ -s gau-data/txturls ] && echo "Found : $(wc -l gau-data/txturls | awk '{print $1}') : text files"
+  cat gau-data/txturls | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> gau-data/alive.txturls
+  [ -s gau-data/alive.txturls ] && echo "Found : $(wc -l gau-data/alive.txturls | awk '{print $1}') : alive text files"
+
+  cat gau-data/all.urls | grep -P "\w+\.jst(\?|$)" | sort -u >> gau-data/jsturls
+  [ -s gau-data/jsturls ] && echo "Found : $(wc -l gau-data/jsturls | awk '{print $1}') : jst files"
+  cat gau-data/jsturls | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> gau-data/alive.jsturls
+  [ -s gau-data/alive.jsturls ] && echo "Found : $(wc -l gau-data/alive.jsturls | awk '{print $1}') : alive jst files"
+
+  cat gau-data/all.urls | grep -P "\w+\.do(\?|$)" | sort -u >> gau-data/dourls
+  [ -s gau-data/dourls ] && echo "Found : $(wc -l gau-data/dourls | awk '{print $1}') : do files"
+  cat gau-data/dourls | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> gau-data/alive.dourls
+  [ -s gau-data/alive.dourls ] && echo "Found : $(wc -l gau-data/alive.dourls | awk '{print $1}') : alive do files"
+
+  cat gau-data/all.urls | grep -P "\w+\.js(\?|$)" | sort -u >> gau-data/jsurls
+  [ -s gau-data/jsurls ] && echo "Found : $(wc -l gau-data/jsurls | awk '{print $1}') : javascript files"
+  cat gau-data/jsurls | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> gau-data/alive.jsurls
+  [ -s gau-data/alive.jsurls ] && echo "Found : $(wc -l gau-data/alive.jsurls | awk '{print $1}') : alive javascript files"
+
+  cat gau-data/all.urls | grep -P "\w+\.php(\?|$)" | sort -u >> gau-data/phpurls
+  [ -s gau-data/phpurls ] && echo "Found : $(wc -l gau-data/phpurls | awk '{print $1}') : php files "
+  cat gau-data/phpurls | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> gau-data/alive.phpurls
+  [ -s gau-data/alive.phpurls ] && echo "${yellow}Found : $(wc -l gau-data/alive.phpurls | awk '{print $1}') : alive php files"
+
+  cat gau-data/all.urls | grep -P "\w+\.aspx(\?|$)" | sort -u >> gau-data/aspxurls
+  [ -s gau-data/aspxurls ] && echo "Found : $(wc -l gau-data/aspxurls | awk '{print $1}') : aspx files"
+  cat gau-data/aspxurls | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> gau-data/alive.aspxurls
+  [ -s gau-data/alive.aspxurls ] && echo "Found : $(wc -l gau-data/alive.aspxurls | awk '{print $1}') : alive aspx files"
+
+  cat gau-data/all.urls | grep -P "\w+\.asp(\?|$)" | sort -u >> gau-data/aspurls
+  [ -s gau-data/aspurls ] && echo "Found : $(wc -l gau-data/aspurls | awk '{print $1}') : asp files"
+  cat gau-data/aspurls | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> gau-data/alive.aspurls
+  [ -s gau-data/alive.aspurls ] && echo "Found : $(wc -l gau-data/alive.aspurls | awk '{print $1}') : alive asp files"
+
+  cat gau-data/all.urls | grep -P "\w+\.jsp(\?|$)" | sort -u >> gau-data/jspurls
+  [ -s gau-data/jspurls ] && echo "Found : $(wc -l gau-data/jspurls | awk '{print $1}') : javascript page files"
+  cat gau-data/jspurls | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> gau-data/alive.jspurls
+  [ -s gau-data/alive.jspurls ] && echo "Found : $(wc -l gau-data/alive.jspurls | awk '{print $1}') : alive javascript page files"
+
+  cat gau-data/all.urls | grep -P "\w+\.xml(\?|$)" | sort -u >> gau-data/xmlurls
+  [ -s gau-data/xmlurls ] && echo "Found : $(wc -l gau-data/xmlurls | awk '{print $1}') : xml files"
+  cat gau-data/xmlurls | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> gau-data/alive.xmlurls
+  [ -s gau-data/alive.xmlurls ] && echo "Found : $(wc -l gau-data/alive.xmlurls | awk '{print $1}') : alive xml files"
+
+  cat gau-data/all.urls | grep -P "\w+\.cgi(\?|$)" | sort -u >> gau-data/cgiurls
+  [ -s gau-data/cgiurls ] && echo "Found : $(wc -l gau-data/cgiurls | awk '{print $1}') : cgi files"
+  cat gau-data/cgiurls | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> gau-data/alive.cgiurls
+  [ -s gau-data/alive.cgiurls ] && echo "Found : $(wc -l gau-data/alive.cgiurls | awk '{print $1}') : alive cgi files"
+
+  cat gau-data/all.urls | grep -P "\w+\.py(\?|$)" | sort -u >> gau-data/pyurls
+  [ -s gau-data/pyurls ] && echo "Found : $(wc -l gau-data/aspxurls | awk '{print $1}') : python files"
+  cat gau-data/pyurls | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> gau-data/alive.pyurls
+  [ -s gau-data/alive.pyurls ] && echo "Found : $(wc -l gau-data/alive.pyurls | awk '{print $1}') : alive python files"
+
+  cat gau-data/all.urls | grep -P "\w+\.bak(\?|$)" | sort -u >> gau-data/bakurls
+  [ -s gau-data/bakurls ] && echo "Found : $(wc -l gau-data/bakurls | awk '{print $1}') : backup files"
+  cat gau-data/bakurls | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> gau-data/alive.bakurls
+  [ -s gau-data/alive.bakurls ] && echo "Found : $(wc -l gau-data/alive.bakurls | awk '{print $1}') : alive backup files"
+
+  cat gau-data/all.urls | grep -P "\w+\.csv(\?|$)" | sort -u >> gau-data/csvurls
+  [ -s gau-data/csvurls ] && echo "Found : $(wc -l gau-data/csvurls | awk '{print $1}') : csv files"
+  cat gau-data/csvurls | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> gau-data/alive.csvurls
+  [ -s gau-data/alive.csvurls ] && echo "Found : $(wc -l gau-data/alive.csvurls | awk '{print $1}') : alive csv files"
+
+  cat gau-data/all.urls | grep -P "\w+\.db(\?|$)" | sort -u >> gau-data/dburls
+  [ -s gau-data/dburls ] && echo "Found : $(wc -l gau-data/dburls | awk '{print $1}') : database files"
+  cat gau-data/dburls | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> gau-data/alive.dburls
+  [ -s gau-data/alive.dburls ] && echo "Found : $(wc -l gau-data/alive.dburls | awk '{print $1}') : alive database files"
+
+  cat gau-data/all.urls | grep -P "\w+\.cfg(\?|$)" | sort -u >> gau-data/configurls
+  [ -s gau-data/configurls ] && echo "Found : $(wc -l gau-data/configurls | awk '{print $1}') : config files"
+  cat gau-data/configurls | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> gau-data/alive.configurls
+  [ -s gau-data/alive.configurls ] && echo "Found : $(wc -l gau-data/alive.configurls | awk '{print $1}') : alive config files"
+
+  cat gau-data/all.urls | grep -P "\w+\.log(\?|$)" | sort -u >> gau-data/logurls
+  [ -s gau-data/logurls ] && echo "Found : $(wc -l gau-data/logurls | awk '{print $1}') : log files"
+  cat gau-data/logurls | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> gau-data/alive.logurls
+  [ -s gau-data/alive.logurls ] && echo "Found : $(wc -l gau-data/alive.logurls | awk '{print $1}') : alive log files"
+
+  cat gau-data/all.urls | grep -P "\w+\.sql(\?|$)" | sort -u >> gau-data/sqlurls
+  [ -s gau-data/sqlurls ] && echo "Found : $(wc -l gau-data/sqlurls | awk '{print $1}') : sql files"
+  cat gau-data/sqlurls | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> gau-data/alive.sqlurls
+  [ -s gau-data/alive.sqlurls ] && echo "Found : $(wc -l gau-data/alive.sqlurls | awk '{print $1}') : alive sql files"
+
+  cat gau-data/all.urls | grep -P "\w+\.msi(\?|$)" | sort -u >> gau-data/msiurls
+  [ -s gau-data/msiurls ] && echo "Found : $(wc -l gau-data/csvurls | awk '{print $1}') : Windows installer package files"
+  cat gau-data/msiurls | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> gau-data/alive.msiurls
+  [ -s gau-data/alive.msiurls ] && echo "Found : $(wc -l gau-data/alive.msiurls | awk '{print $1}') : alive Windows installer package files"
+
+  cat gau-data/all.urls | grep -P "\w+\.csv(\?|$)" | sort -u >> gau-data/csvurls
+  [ -s gau-data/csvurls ] && echo "Found : $(wc -l gau-data/csvurls | awk '{print $1}') : csv files"
+  cat gau-data/csvurls | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> gau-data/alive.csvurls
+  [ -s gau-data/alive.csvurls ] && echo "Found : $(wc -l gau-data/alive.csvurls | awk '{print $1}') : alive csv files"
+
+  cat gau-data/all.urls | grep -P "\w+\.cfm(\?|$)" | sort -u >> gau-data/cfmurls
+  [ -s gau-data/cfmurls ] && echo "Found : $(wc -l gau-data/cfmurls | awk '{print $1}') : cold fusion files"
+  cat gau-data/cfmurls | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> gau-data/alive.cfmurls
+  [ -s gau-data/alive.cfmurls ] && echo "Found : $(wc -l gau-data/alive.cfmurls | awk '{print $1}') : alive cold fusioin files"
+
+  cat gau-data/all.urls | grep -P "\w+\.wsf(\?|$)" | sort -u >> gau-data/wsfurls
+  [ -s gau-data/wsfurls ] && echo "Found : $(wc -l gau-data/wsfurls | awk '{print $1}') : windows script files"
+  cat gau-data/wsfurls | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> gau-data/alive.wsfurls
+  [ -s gau-data/alive.wsfurls ] && echo "Found : $(wc -l gau-data/alive.wsfurls | awk '{print $1}') : alive window script files"
+}
+
+getcms(){
+  cat all.alive.subdomains | while read line; do
+    whatweb -U "$UA" $line | tee -a all.cms
   done
-  cat *-robots.txt | cut -c -2 | sort -u >> wayback-data/robots.paths.wobs
 }
 
-waybackrecon() {
-  ## drishti
-  mkdir wayback-data/
-  getrobots
-  echo "${green}Scraping wayback for data... ${reset}"
-
-  cat all.alive.subdomains | waybackurls | sort -u >> wayback-data/waybackurls
-
-  cat wayback-data/waybackurls | unfurl --unique keys | sort -u >> wayback-data/params
-  [ -s wayback-data/params ] && echo "${yellow}Found : $(wc -l wayback-data/params | awk '{print $1}') : parameters ${reset}"
-
-  cat wayback-data/waybackurls | unfurl --unique values | sort -u >> wayback-data/values
-  [ -s wayback-data/values ] && echo "${yellow}Found : $(wc -l  wayback-data/values | awk '{print $1}') : values for parameters ${reset}"
-
-  cat wayback-data/waybackurls | unfurl --unique domains | sort -u >> wayback-data/domains
-  [ -s wayback-data/domains ] && echo "${yellow}Found : $(wc -l wayback-data/domains | awk '{print $1}') : domains ${reset}"
-
-  cat wayback-data/waybackurls | unfurl --unique paths | sort -u >> wayback-data/paths
-  cat wayback-data/paths | cut -c 2- | sort -u >> wayback-data/paths.wobs
-  [ -s wayback-data/paths ] && echo "${yellow}Found : $(wc -l wayback-data/paths | awk '{print $1}') : paths ${reset}"
-
-  cat wayback-data/waybackurls | unfurl --unique format %S | sort -u >> wayback-data/subdomains
-  [ -s wayback-data/subdomains ] && echo "${yellow}Found : $(wc -l wayback-data/subdomains | awk '{print $1}') : subdomains ${reset}"
-
-  cat wayback-data/waybackurls | grep -P "\w+\.js(\?|$)" | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> wayback-data/jsurls
-  [ -s wayback-data/jsurls ] && echo "${yellow}Found : $(wc -l wayback-data/jsurls | awk '{print $1}') : javascript files ${reset}" 
-
-  cat wayback-data/waybackurls | grep -P "\w+\.php(\?|$)" | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> wayback-data/phpurls
-  [ -s $domain/$foldername/wayback-data/phpurls ] && echo "${yellow}Found : $(wc -l $domain/$foldername/wayback-data/phpurls | awk '{print $1}') : php files ${reset}"
-
-  cat wayback-data/waybackurls | grep -P "\w+\.aspx(\?|$)" | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> wayback-data/aspxurls
-  [ -s wayback-data/aspxurls ] && echo "${yellow}Found : $(wc -l wayback-data/aspxurls | awk '{print $1}') : aspx files ${reset}"
-
-  cat wayback-data/waybackurls | grep -P "\w+\.asp(\?|$)" | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> wayback-data/aspurls
-  [ -s wayback-data/aspurls ] && echo "${yellow}Found : $(wc -l wayback-data/aspurls | awk '{print $1}') : asp files ${reset}"
-
-  cat wayback-data/waybackurls | grep -P "\w+\.jsp(\?|$)" | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> wayback-data/jspurls
-  [ -s wayback-data/jspurls ] && echo "${yellow}Found : $(wc -l wayback-data/jspurls | awk '{print $1}') : javascript Server Pages ${reset}"
-
-  cat wayback-data/waybackurls | grep -P "\w+\.xml(\?|$)" | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> wayback-data/xmlurls
-  [ -s wayback-data/xmlurls ] && echo "${yellow}Found : $(wc -l wayback-data/xmlurls | awk '{print $1}') : xml files ${reset}"
-
-  cat wayback-data/waybackurls | grep -P "\w+\.cgi(\?|$)" | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> wayback-data/cgiurls
-  [ -s wayback-data/cgiurls ] && echo "${yellow}Found : $(wc -l wayback-data/cgiurls | awk '{print $1}') : cgi files ${reset}"
-
-  cat wayback-data/waybackurls | grep -P "\w+\.py(\?|$)" | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> wayback-data/pyurls
-  [ -s wayback-data/pyurls ] && echo "${yellow}Found : $(wc -l wayback-data/pyurls | awk '{print $1}') : python files ${reset}"
-
-  cat wayback-data/waybackurls | grep -P "\w+\.bak(\?|$)" | hakcheckurl | grep 200 | awk '{print $2}' | sort -u >> wayback-data/backupurls
-  [ -s wayback-data/backupurls ] && echo "${yellow}Found : $(wc -l wayback-data/backupurls | awk '{print $1}') : backup files ${reset}"
+makewordlists(){
+  mkdir wordlists
+  
+  cat gau-data/all.urls gau-data/crawler/linkfinder.paths all.js.urls gau-data/paths.wobs | sort -u | wordlistgen -qv >> wordlists/urlComponents
+  cat gau-data/all.urls gau-data/crawler/linkfinder.paths all.js.urls gau-data/paths.wobs | sort -u | wordlistgen -fq >> wordlists/paths
+ 
+  cat gau-data/all.urls | 1ndiList -param -t 50 -o wordlists/
+  mv wordlists/params.txt wordlists/params
+  cat gau-data/params | anew wordlists/params
 }
 
-#gocewl hakrawler
-crawler() { 
-  cat hosts | while read line; do
-    gau -subs $line | tee -a crawled.urls
-  done
+bf-custom(){
+  ffuf -u FUZZ1FUZZ2 -w all.alive.subdomains:FUZZ1 -w wordlists/urlComponents:FUZZ2 -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.138 Safari/537.36" -r -c -mc 100,101,102,200,201,202,203,206,207,208,226,302,304,305,306,307,401,402,403,407,418,417,500,504 -o content-discovery/ffuf.bf.wayback.json -t 50 -replay-proxy http://127.0.0.1:8080
 }
 
-getjsurls() {  
-  cat hosts | while read line; do
-    cat all.alive.subdomains | subjs -ua "$UA" | grep $line | tee -a js.urls
-  done
-  cat all.alive.subdomains | getJS -complete -resolve | sort -u | tee -a js.urls
-  [ - f wayback-data/jsurls ] && cat wayback-data/jsurls >> js.urls && rm wayback-data/jsurls -f
-  sort -u -o sorted.js.urls js.urls
-  rm js.urls -f
-  cat sorted.js.urls | hakcheckurl | grep 200 | awk '{print $2}' >> alive.js.urls
-  rm sorted.js.urls -f
+bf-quickhit(){
+  ffuf -u FUZZ1FUZZ2 -w all.alive.subdomains:FUZZ1 -w ~/tools/lists/my-lists/quick:FUZZ2 -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.138 Safari/537.36" -r -c -mc 100,101,102,200,201,202,203,206,207,208,226,302,304,305,306,307,401,402,403,407,418,417,500,504 -o content-discovery/ffuf.bf.quickhit.json -t 50 -replay-proxy http://127.0.0.1:8080
 }
 
-getjspaths() {
-  cat js.urls | while read line; do 
-    ruby /home/nickqy/tools/relative-url-extractor-master/extract.rb $line | tee -a js.extracted.paths
-    python3 ~/tools/LinkFinder/linkfinder.py -i $line -o cli | tee -a js.extracted.paths
-  done
-  sort -u js.extracted.paths -o sorted.js.paths
-  rm -f js.extracted.paths
-  cat sorted.js.paths | cut -c 2- | sort -u >> sorted.js.paths.wobs
+content-discovery(){
+  mkdir content-discovery
+  bf-custom
+  bf-quickhit
 }
 
-#getcms(){
-#  cmsmap webanalyzer cmseek builtwith whatweb wappalyze
-#}
-
-#check4wafs(){
-#  wafwoof
-#  identYwaf
-#}
-
-## ffuf, gobuster, meg
-#bf-jspaths
-#bf-wayback
-#bf-quick
-#bf-mylist
-#bf-custom
-
-#bf-params(){
-# arjun parameth aron photon 
-#}
-
-#fullrecon(){
-#  getscope
-#  subdomain-enum
-#  resolve
-#  checkscope
-#  getalive
-#  screenshot
-#  scanner
-#  waybackrecon
-#  crawler
-#  getjsurls
-#  getjspaths
-#  getcms
-#  check4wafs
-#  bruteforce
-#}
-
-redUrl() { 
-gau -subs $1 | grep "redirect" >> $1_redirectall.txt | gau -subs $1 | grep "redirect=" >> $1_redirectequal.txt | gau -subs $1 | grep "url" >> $1_urlall.txt | gau -subs $1 | grep "url=" >> $1_urlequal.txt | gau -subs $1 | grep "next=" >> $1_next.txt | gau -subs $1 | grep "dest=" >> $1_dest.txt | gau -subs $1 | grep "destination" >> $1_destination.txt | gau -subs $1 | grep "return" >> $1_return.txt | gau -subs $1 | grep "go=" >> $1_go.txt | gau -subs $1 | grep "redirect_uri" >> $1_redirecturi.txt | gau -subs $1 | grep "continue=" >> $1_continue.txt | gau -subs $1 | grep "return_path=" >> $1_path.txt | gau -subs $1 | grep "externalLink=" >> $1_link.txt | gau -subs $1 | grep "URL=" >> $1_URL.txt 
+checkdomains(){
+  subdomain-enum
+  dnsrecords
+  getalive
+  screenshot
 }
 
-blindssrftest(){
-  if [ -z "$1" ]; then
-    echo >&2 "ERROR: Domain not set"
-    exit 2
-  fi
-  if [ -z "$2" ]; then
-    echo >&2 "ERROR: Sever link not set"
-    exit 2
-  fi
-  if [ -f wayback-data/waybackurls ] && [ -f crawler.urls ]; then
-    cat wayack-data/waybackurls crawler.urls | sort -u | grep "?" | qsreplace -a | qsreplace $2 > $1-bssrf
-    sed -i "s|$|\&dest=$2\&redirect=$2\&uri=$2\&path=$2\&continue=$2\&url=$2\&window=$2\&next=$2\&data=$2\&reference=$2\&site=$2\&html=$2\&val=$2\&validate=$2\&domain=$2\&callback=$2\&return=$2\&page=$2\&feed=$2\&host=$2&\port=$2\&to=$2\&out=$2\&view=$2\&dir=$2\&show=$2\&navigation=$2\&open=$2|g" $1-bssrf
-    echo "Firing the requests - check your server for potential callbacks"
-    ffuf -w $1-bssrf -u FUZZ -t 50
-  fi
+recon(){
+  subdomain-enum
+  dnsrecords
+  getalive
+  scanner
+  screenshot
+  gaurecon
+  checkurls
+  getcms
+  makewordlists
+  content-disovery
 }
 
-## must already be login to github 
-# this is part of jhaddix hunter.sh script
-github_dorks () {
-        if [ "$#" -ne 1 ]; then
-                echo "${red}Usage: domain_github_dorks <domains>${reset}"
-                return
-        fi
-        host=$1
-        without_suffix=$(awk -F '.' '{print $1}' host)
-        echo ""
-        echo "************ Github Dork Links (must be logged in) *******************"
-        echo ""
-        echo "  password"
-        echo "https://github.com/search?q=%22$1%22+password&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+password&type=Code"
-        echo ""
-        echo " npmrc _auth"
-        echo "https://github.com/search?q=%22$1%22+npmrc%20_auth&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+npmrc%20_auth&type=Code"
-        echo ""
-        echo " dockercfg"
-        echo "https://github.com/search?q=%22$1%22+dockercfg&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+dockercfg&type=Code"
-        echo ""
-        echo " pem private"
-        echo "https://github.com/search?q=%22$1%22+pem%20private&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+extension:pem%20private&type=Code"
-        echo ""
-        echo "  id_rsa"
-        echo "https://github.com/search?q=%22$1%22+id_rsa&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+id_rsa&type=Code"
-        echo ""
-        echo " aws_access_key_id"
-        echo "https://github.com/search?q=%22$1%22+aws_access_key_id&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+aws_access_key_id&type=Code"
-        echo ""
-        echo " s3cfg"
-        echo "https://github.com/search?q=%22$1%22+s3cfg&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+s3cfg&type=Code"
-        echo ""
-        echo " htpasswd"
-        echo "https://github.com/search?q=%22$1%22+htpasswd&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+htpasswd&type=Code"
-        echo ""
-        echo " git-credentials"
-        echo "https://github.com/search?q=%22$1%22+git-credentials&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+git-credentials&type=Code"
-        echo ""
-        echo " bashrc password"
-        echo "https://github.com/search?q=%22$1%22+bashrc%20password&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+bashrc%20password&type=Code"
-        echo ""
-        echo " sshd_config"
-        echo "https://github.com/search?q=%22$1%22+sshd_config&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+sshd_config&type=Code"
-        echo ""
-        echo " xoxp OR xoxb OR xoxa"
-        echo "https://github.com/search?q=%22$1%22+xoxp%20OR%20xoxb%20OR%20xoxa&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+xoxp%20OR%20xoxb&type=Code"
-        echo ""
-        echo " SECRET_KEY"
-        echo "https://github.com/search?q=%22$1%22+SECRET_KEY&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+SECRET_KEY&type=Code"
-        echo ""
-        echo " client_secret"
-        echo "https://github.com/search?q=%22$1%22+client_secret&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+client_secret&type=Code"
-        echo ""
-        echo " sshd_config"
-        echo "https://github.com/search?q=%22$1%22+sshd_config&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+sshd_config&type=Code"
-        echo ""
-        echo " github_token"
-        echo "https://github.com/search?q=%22$1%22+github_token&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+github_token&type=Code"
-        echo ""
-        echo " api_key"
-        echo "https://github.com/search?q=%22$1%22+api_key&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+api_key&type=Code"
-        echo ""
-        echo " FTP"
-        echo "https://github.com/search?q=%22$1%22+FTP&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+FTP&type=Code"
-        echo ""
-        echo " app_secret"
-        echo "https://github.com/search?q=%22$1%22+app_secret&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+app_secret&type=Code"
-        echo ""
-        echo "  passwd"
-        echo "https://github.com/search?q=%22$1%22+passwd&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+passwd&type=Code"
-        echo ""
-        echo " s3.yml"
-        echo "https://github.com/search?q=%22$1%22+.env&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+.env&type=Code"
-        echo ""
-        echo " .exs"
-        echo "https://github.com/search?q=%22$1%22+.exs&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+.exs&type=Code"
-        echo ""
-        echo " beanstalkd.yml"
-        echo "https://github.com/search?q=%22$1%22+beanstalkd.yml&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+beanstalkd.yml&type=Code"
-        echo ""
-        echo " deploy.rake"
-        echo "https://github.com/search?q=%22$1%22+deploy.rake&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+deploy.rake&type=Code"
-        echo ""
-        echo " mysql"
-        echo "https://github.com/search?q=%22$1%22+mysql&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+mysql&type=Code"
-        echo ""
-        echo " credentials"
-        echo "https://github.com/search?q=%22$1%22+credentials&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+credentials&type=Code"
-        echo ""
-        echo " PWD"
-        echo "https://github.com/search?q=%22$1%22+PWD&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+PWD&type=Code"
-        echo ""
-        echo " deploy.rake"
-        echo "https://github.com/search?q=%22$1%22+deploy.rake&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+deploy.rake&type=Code"
-        echo ""
-        echo " .bash_history"
-        echo "https://github.com/search?q=%22$1%22+.bash_history&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+.bash_history&type=Code"
-        echo ""
-        echo " .sls"
-        echo "https://github.com/search?q=%22$1%22+.sls&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+PWD&type=Code"
-        echo ""
-        echo " secrets"
-        echo "https://github.com/search?q=%22$1%22+secrets&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+secrets&type=Code"
-        echo ""
-        echo " composer.json"
-        echo "https://github.com/search?q=%22$1%22+composer.json&type=Code"
-        echo "https://github.com/search?q=%22$without_suffix%22+composer.json&type=Code"
-        echo ""
-}
-
-check4vulns() {
-  redUrl
-  blindssrf
-#  github-dorker -> gitrob, git-dump, git-hound, git-all-secrets 
-#  google-dorker -> thehavester, jnx-script
-#  shodan-dorker -> reconSai
-#  CORStest -> CORStest
-#  AWSbuckets ScoutSuite -> S3canner, lazyS3, mass3, s3Takeover
-#  domain-takeover -> subzy, subzero, tko-subs, takeover, subjack
-#  XSS -> XSStrike
-#  backupfiles -> BFAC
-#  crlf -> CRLF-Injection-Scanner
-}
-
-
-#getapk(){ adb }
-#pushapk(){ adb }
-
-dapk(){ 
-  apktool d $1 
-}
-
-#rapk(){ apktool   $1 }
-#apk2jar(){ enjarify } 
-#readjar(){ jadx jd-gui jd-cmd }
-
-#androidapp-recon() {
-# get endpoints
-# add ssl cert to an app automaticly 
-# decodify reverseAPK websf ninjadroid
-#}
-
-# OSINT tools
-check4phNsq(){
-  ~/tools/urlcrazy/urlcrazy -p $1
-  #python3 ~/tools/dnstwist/dnstwist.py 
-}
-
-fullOSINT(){
-  check4phNsq
-#  spiderfoot
-#  hunter.io
-#  intelx.io
-#  Zoomeye
-#  nerdydata
-#  crunchbase
-#  curl emailrep.io/$email
-#  OSRF
-#  theharvester
-#  recon-ng-v5
+checknuclei(){
+  mkdir nuclei_op
+  nuclei -l all.alive -t ~/tools/nuclei-templates/cves/ -c 75 -o nuclei_op/cves -pbar
+  nuclei -l all.alive -t ~/tools/nuclei-templates/files/ -c 75 -o nuclei_op/files -pbar
+  nuclei -l all.alive -t ~/tools/nuclei-templates/panels/ -c 75 -o nuclei_op/panels -pbar
+  nuclei -l all.alive -t ~/tools/nuclei-templates/security-misconfiguration/ -c 75 -o nuclei_op/security-misconfiguration -pbar
+  nuclei -l all.alive -t ~/tools/nuclei-templates/technologies/ -c 75 -o nuclei_op/technologies -pbar
+  nuclei -l all.alive -t ~/tools/nuclei-templates/tokens/ -c 75 -o nuclei_op/tokens -pbar
+  nuclei -l all.alive -t ~/tools/nuclei-templates/vulnerabilities/ -c 75 -o nuclei_op/vulnerabilities -pbar
+  nuclei -l all.alive -t ~/tools/nuclei-templates/generic-detections/ -c 75 -o nuclei_op/basic -pbar
+  nuclei -l all.alive -t ~/tools/nuclei-templates/dns/ -c 75 -o nuclei_op/dns -pbar
+  nuclei -l all.alive -t ~/tools/nuclei-templates/subdomain-takeover/ -c 75 -o nuclei_op/subdomain-takeover -pbar
+  nuclei -l all.alive -t ~/tools/nuclei-templates/default-credentials/ -c 75 -o nuclei_op/defcreds -pbar
 }
