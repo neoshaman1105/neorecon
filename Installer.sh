@@ -146,6 +146,8 @@ install_go_tools() {
   go get -u github.com/projectdiscovery/nuclei/v2/cmd/nuclei
   echo -e "$GREEN""[+] Installing/Updateing nuclei templates.""$NC"
   nuclei -update-templates -update-directory $TOOLS
+  mkdir $TOOLS/nuclei-templates/sqli
+  wget "https://gist.githubusercontent.com/affilares/71752e2a172d1a6cab3b48575c2260a6/raw/aa8ca46cfeeede074399686b0cd1b36f6dcd76e2/sqli2.yaml" -o $TOOLS/nuclei-templates/sqli/sqli2.yaml
   echo -e "$GREEN""[+] Installing metabigor.""$NC"
   go get -u github.com/j3ssie/metabigor
   echo -e "$GREEN""[+] Installing shosubgo.""$NC"
