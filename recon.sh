@@ -328,4 +328,5 @@ checknuclei(){
   nuclei -l all.alive -t ~/tools/nuclei-templates/dns/ -c 75 -o nuclei_op/dns -pbar
   nuclei -l all.alive -t ~/tools/nuclei-templates/subdomain-takeover/ -c 75 -o nuclei_op/subdomain-takeover -pbar
   nuclei -l all.alive -t ~/tools/nuclei-templates/default-credentials/ -c 75 -o nuclei_op/defcreds -pbar
+  nuclei -l all.alive -t ~/tools/nuclei-templates/sqli/ -c 75 -o nuclei_op/sql-injection -pbar
 }
