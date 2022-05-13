@@ -8,7 +8,7 @@ I personally have been using to start my bug hunting journey
 - source ~/.recon
 - Then HTP and have a fun day :)
 
-## UNDER DEVELOPMENT 
+## UNDER DEVELOPMENT AGAIN AS OF May 12 2022 E.V.
  So sorry if anything breaks just pop into DC CyberSec Discord for any questions
  https://discord.com/invite/dccybersec
  
